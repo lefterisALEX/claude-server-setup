@@ -356,6 +356,32 @@
         shell: "{{ fish_path.stdout }}"
       become: yes
 
+    # ─── Ghostty terminfo ────────────────────────────────────────────────────────
+    # So tmux/less/vim work over SSH when the client is Ghostty (TERM=xterm-ghostty).
+    - name: Check if Ghostty terminfo is already installed
+      command: infocmp -x xterm-ghostty
+      register: ghostty_terminfo_check
+      changed_when: false
+      failed_when: false
+      environment:
+        TERMINFO: "{{ ansible_env.HOME }}/.terminfo"
+
+    - name: Download Ghostty terminfo source
+      get_url:
+        url: https://raw.githubusercontent.com/ghostty-org/ghostty/main/src/terminfo/ghostty.terminfo
+        dest: /tmp/ghostty.terminfo
+      when: ghostty_terminfo_check.rc != 0
+
+    - name: Compile Ghostty terminfo into ~/.terminfo
+      command: tic -x -o {{ ansible_env.HOME }}/.terminfo /tmp/ghostty.terminfo
+      when: ghostty_terminfo_check.rc != 0
+
+    - name: Clean up Ghostty terminfo source
+      file:
+        path: /tmp/ghostty.terminfo
+        state: absent
+      when: ghostty_terminfo_check.rc != 0
+
     # ─── Ensure ~/.local/bin exists (shared prereq) ──────────────────────────────
     - name: Ensure ~/.local/bin exists
       file:
