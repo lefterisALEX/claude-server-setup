@@ -5,7 +5,7 @@ End-to-end guide for a hardened Hetzner VPS running Claude Code, Playwright, Go 
 ## Architecture overview
 
 - **Server**: Hetzner CPX32 (AMD Genoa, 4 vCPU, 8 GB, 160 GB NVMe) — Ubuntu 24.04
-- **SSH**: port 2222, keys only, non-root user `alex` with sudo (password set)
+- **SSH**: port 22, keys only, non-root user `alex` with sudo (password set)
 - **Network access**: Tailscale for normal use, public SSH closed at Hetzner firewall
 - **Fallbacks** (in order): Tailscale → Hetzner web console (password) → rescue mode
 - **Config management**: Ansible via `ansible-pull` — no controller needed, server self-configures from this repo
@@ -34,7 +34,7 @@ Edit `vars.yml` before pushing the repo:
 
 ```yaml
 new_user: alex          # your non-root username
-ssh_port: 2222          # SSH port
+ssh_port: 22             # SSH port
 ssh_pubkey: ""          # paste your SSH public key, or leave empty to copy from root
 timezone: Europe/Amsterdam
 auto_reboot_time: "03:00"
@@ -70,13 +70,13 @@ ssh root@$SERVER_IP \
 This installs Ansible, pulls the repo, and applies `harden.yml`. It:
 - Updates all packages
 - Creates the non-root user with your SSH key
-- Moves SSH to port 2222, disables root login and password auth
-- Enables ufw (only 2222/tcp open), fail2ban, unattended upgrades, sysctl hardening, auditd
+- Moves SSH to port 22, disables root login and password auth
+- Enables ufw (only 22/tcp open), fail2ban, unattended upgrades, sysctl hardening, auditd
 
 ### Verify before closing the root session
 
 ```bash
-ssh -p 2222 alex@$SERVER_IP "sudo whoami"
+ssh alex@$SERVER_IP "sudo whoami"
 # Should print: root
 ```
 
@@ -85,7 +85,7 @@ ssh -p 2222 alex@$SERVER_IP "sudo whoami"
 Critical for web console fallback:
 
 ```bash
-ssh -p 2222 alex@$SERVER_IP
+ssh alex@$SERVER_IP
 sudo passwd alex      # save it in your password manager
 exit
 ```
@@ -93,7 +93,7 @@ exit
 ## Step 4 — Remove passwordless sudo
 
 ```bash
-ssh -p 2222 alex@$SERVER_IP
+ssh alex@$SERVER_IP
 
 sudo -k && sudo whoami   # verify password-based sudo works first
 
@@ -107,7 +107,7 @@ sudo -k && sudo whoami   # verify again
 ## Step 5 — Install dev tools (as alex)
 
 ```bash
-ssh -p 2222 alex@$SERVER_IP \
+ssh alex@$SERVER_IP \
   "ansible-pull -U https://github.com/lefterisALEX/claude-server-setup devtools.yml"
 ```
 
@@ -118,7 +118,7 @@ Installs: Node.js LTS, Claude Code, Go, Docker CE, kubectl, Helm, stern, Neovim,
 ## Step 6 — Authenticate
 
 ```bash
-ssh -p 2222 alex@$SERVER_IP
+ssh alex@$SERVER_IP
 claude          # OAuth flow in browser
 gh auth login   # OAuth flow in browser
 
@@ -143,7 +143,7 @@ Enable MagicDNS in the Tailscale admin console.
 Host claude
     HostName       claude.tail-xxxx.ts.net
     User           alex
-    Port           2222
+    Port           22
     IdentityFile   ~/.ssh/id_ed25519
     IdentitiesOnly yes
 ```
@@ -155,13 +155,13 @@ hcloud firewall create --name claude-fw
 hcloud firewall apply-to-resource claude-fw --type server --server claude
 ```
 
-Test from laptop: `ssh claude` (Tailscale) works, `nc -zv <public-ip> 2222` times out.
+Test from laptop: `ssh claude` (Tailscale) works, `nc -zv <public-ip> 22` times out.
 
 ### Emergency: re-open 2222 publicly
 
 ```bash
 hcloud firewall add-rule claude-fw \
-  --direction in --protocol tcp --port 2222 \
+  --direction in --protocol tcp --port 22 \
   --source-ips 0.0.0.0/0 --source-ips ::/0 \
   --description "Emergency SSH"
 ```
@@ -192,7 +192,7 @@ ansible-pull -U https://github.com/lefterisALEX/claude-server-setup devtools.yml
 |------|-------------|-----|
 | Tailscale SSH | Normal daily use | `ssh claude` |
 | Hetzner web console | Tailscale broken | Hetzner panel → server → Console tab, log in as alex with password |
-| Public SSH (temp) | Both above broken | `hcloud firewall add-rule` to open 2222, then SSH normally |
+| Public SSH (temp) | Both above broken | `hcloud firewall add-rule` to open 22, then SSH normally |
 
 ## Verification checks
 

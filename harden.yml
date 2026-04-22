@@ -9,8 +9,7 @@
   handlers:
     - name: restart sshd
       shell: |
-        systemctl daemon-reload
-        systemctl restart ssh.socket
+        systemctl restart ssh.socket || systemctl reload ssh.service || systemctl reload sshd.service
 
   tasks:
     - name: Update and full-upgrade packages
@@ -102,22 +101,6 @@
         path: /run/sshd
         state: directory
         mode: '0755'
-
-    - name: Create ssh.socket override directory
-      file:
-        path: /etc/systemd/system/ssh.socket.d
-        state: directory
-        mode: '0755'
-
-    - name: Override ssh.socket to listen on custom port
-      copy:
-        dest: /etc/systemd/system/ssh.socket.d/override.conf
-        content: |
-          [Socket]
-          ListenStream=
-          ListenStream={{ ssh_port }}
-        mode: '0644'
-      notify: restart sshd
 
     - name: Write sshd hardening config
       template:

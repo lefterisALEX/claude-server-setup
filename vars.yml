@@ -1,7 +1,7 @@
 ---
 # ─── Server config ─────────────────────────────────────────────────────────────
 new_user: alex
-ssh_port: 2222
+ssh_port: 22
 ssh_pubkey: ""          # paste your SSH public key, or leave empty to copy from root
 timezone: Europe/Amsterdam
 auto_reboot_time: "03:00"
