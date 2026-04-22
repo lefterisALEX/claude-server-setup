@@ -356,12 +356,20 @@
         shell: "{{ fish_path.stdout }}"
       become: yes
 
-    # ─── 14. Starship ────────────────────────────────────────────────────────────
+    # ─── Ensure ~/.local/bin exists (shared prereq) ──────────────────────────────
     - name: Ensure ~/.local/bin exists
       file:
         path: "{{ ansible_env.HOME }}/.local/bin"
         state: directory
         mode: '0755'
+
+    - name: Install dev-setup script
+      copy:
+        src: dev-setup
+        dest: "{{ ansible_env.HOME }}/.local/bin/dev-setup"
+        mode: '0755'
+
+    # ─── 14. Starship ────────────────────────────────────────────────────────────
 
     - name: Install Starship
       shell: curl -fsSL https://starship.rs/install.sh | sh -s -- --yes --bin-dir {{ ansible_env.HOME }}/.local/bin

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="https://github.com/lefterisALEX/claude-server-setup"
+PLAYBOOK="devtools.yml"
+
+echo "==> Pulling latest config from ${REPO} ..."
+ansible-pull -U "${REPO}" "${PLAYBOOK}" "$@"
