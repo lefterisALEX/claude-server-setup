@@ -44,30 +44,31 @@
         DEBIAN_FRONTEND: noninteractive
 
     # ─── 2. Swap file ────────────────────────────────────────────────────────────
-    - name: Create swap file
-      command: fallocate -l 4G /swapfile
-      args:
-        creates: /swapfile
+    - name: Check if swap is active
+      command: swapon --show=NAME --noheadings
+      register: swap_active
+      changed_when: false
       become: yes
 
-    - name: Set swap file permissions
-      file:
-        path: /swapfile
-        mode: '0600'
-      become: yes
+    - name: Set up swap file
+      block:
+        - name: Create swap file
+          command: fallocate -l 4G /swapfile
+          args:
+            creates: /swapfile
 
-    - name: Format swap file
-      command: mkswap /swapfile
-      register: mkswap_result
-      changed_when: "'Setting up swapspace' in mkswap_result.stdout"
-      become: yes
+        - name: Set swap file permissions
+          file:
+            path: /swapfile
+            mode: '0600'
 
-    - name: Enable swap file
-      command: swapon /swapfile
-      register: swapon_result
-      changed_when: swapon_result.rc == 0
-      failed_when: swapon_result.rc != 0 and 'already' not in swapon_result.stderr
+        - name: Format swap file
+          command: mkswap /swapfile
+
+        - name: Enable swap file
+          command: swapon /swapfile
       become: yes
+      when: "'/swapfile' not in swap_active.stdout"
 
     - name: Add swap to fstab
       lineinfile:
