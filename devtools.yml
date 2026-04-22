@@ -367,6 +367,15 @@
 
     # ─── Ghostty terminfo ────────────────────────────────────────────────────────
     # So tmux/less/vim work over SSH when the client is Ghostty (TERM=xterm-ghostty).
+    # The terminfo source isn't published as a downloadable file by upstream;
+    # generate it once on your Ghostty client with:
+    #   infocmp -x xterm-ghostty > files/ghostty.terminfo
+    # then commit it. If the file is missing, this section is skipped.
+    - name: Check if bundled Ghostty terminfo source exists
+      stat:
+        path: "{{ playbook_dir }}/files/ghostty.terminfo"
+      register: ghostty_terminfo_src
+
     - name: Check if Ghostty terminfo is already installed
       command: infocmp -x xterm-ghostty
       register: ghostty_terminfo_check
@@ -374,22 +383,29 @@
       failed_when: false
       environment:
         TERMINFO: "{{ ansible_env.HOME }}/.terminfo"
+      when: ghostty_terminfo_src.stat.exists
 
-    - name: Download Ghostty terminfo source
-      get_url:
-        url: https://raw.githubusercontent.com/ghostty-org/ghostty/main/src/terminfo/ghostty.terminfo
+    - name: Copy Ghostty terminfo source to /tmp
+      copy:
+        src: files/ghostty.terminfo
         dest: /tmp/ghostty.terminfo
-      when: ghostty_terminfo_check.rc != 0
+      when:
+        - ghostty_terminfo_src.stat.exists
+        - ghostty_terminfo_check.rc != 0
 
     - name: Compile Ghostty terminfo into ~/.terminfo
       command: tic -x -o {{ ansible_env.HOME }}/.terminfo /tmp/ghostty.terminfo
-      when: ghostty_terminfo_check.rc != 0
+      when:
+        - ghostty_terminfo_src.stat.exists
+        - ghostty_terminfo_check.rc != 0
 
     - name: Clean up Ghostty terminfo source
       file:
         path: /tmp/ghostty.terminfo
         state: absent
-      when: ghostty_terminfo_check.rc != 0
+      when:
+        - ghostty_terminfo_src.stat.exists
+        - ghostty_terminfo_check.rc != 0
 
     # ─── Ensure ~/.local/bin exists (shared prereq) ──────────────────────────────
     - name: Ensure ~/.local/bin exists
