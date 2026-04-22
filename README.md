@@ -1,6 +1,6 @@
 # Hetzner VPS Setup for Claude Code
 
-End-to-end guide for a hardened Hetzner VPS running Claude Code, Playwright, Go tests, and related dev tooling. Documents the exact setup, including lessons learned from lockouts along the way.
+End-to-end guide for a hardened Hetzner VPS running Claude Code, Playwright, Go tests, and related dev tooling.
 
 ## Architecture overview
 
@@ -8,14 +8,39 @@ End-to-end guide for a hardened Hetzner VPS running Claude Code, Playwright, Go 
 - **SSH**: port 2222, keys only, non-root user `alex` with sudo (password set)
 - **Network access**: Tailscale for normal use, public SSH closed at Hetzner firewall
 - **Fallbacks** (in order): Tailscale → Hetzner web console (password) → rescue mode
-- **Dev tools**: Node.js LTS, Go, Docker, kubectl, helm, stern, Neovim, Fish, Starship, chezmoi, gh (GitHub CLI), Claude Code
+- **Config management**: Ansible via `ansible-pull` — no controller needed, server self-configures from this repo
 
 ## Sizing rationale
 
 - **CPX22** (2 vCPU / 4 GB) — too small once Playwright spins up 3+ browsers alongside Go tests
 - **CPX32** (4 vCPU / 8 GB) — sweet spot for this workload
 - **CCX13** (dedicated vCPU) — consider if Playwright timing flakiness becomes an issue
-- **CAX21** (ARM / 4 vCPU / 8 GB) — cheaper alternative, works fine for Go + Playwright (Playwright ships ARM64 browsers now)
+- **CAX21** (ARM / 4 vCPU / 8 GB) — cheaper alternative, works fine for Go + Playwright
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `vars.yml` | All configuration — edit this before running |
+| `harden.yml` | Ansible playbook: OS hardening (run as root) |
+| `devtools.yml` | Ansible playbook: dev tool installation (run as non-root user) |
+| `bootstrap.sh` | Tiny bootstrap: installs Ansible, then runs `ansible-pull` |
+| `templates/` | Jinja2 templates for sshd and fail2ban config |
+
+## Configuration
+
+Edit `vars.yml` before pushing the repo:
+
+```yaml
+new_user: alex          # your non-root username
+ssh_port: 2222          # SSH port
+ssh_pubkey: ""          # paste your SSH public key, or leave empty to copy from root
+timezone: Europe/Amsterdam
+auto_reboot_time: "03:00"
+go_version: "1.23.4"
+stern_version: "1.30.0"
+dotfiles_repo: ""       # optional: https://github.com/you/dotfiles.git
+```
 
 ## Step 1 — Create the server
 
@@ -28,177 +53,108 @@ hcloud server create \
   --ssh-key lefteris
 ```
 
-If the type is unavailable in your chosen location, try `hel1` (Helsinki) or `fsn1` (Falkenstein). Check availability with `hcloud server-type list`.
-
 Note the IPv4 address from the output.
 
-## Step 2 — Copy and run the hardening script
-
-From your laptop, in the directory containing the scripts:
+## Step 2 — Run hardening (as root)
 
 ```bash
 SERVER_IP=<ip-from-step-1>
 
-scp -o IdentitiesOnly=yes harden-vps.sh dev-setup.sh root@$SERVER_IP:/root/
-
-ssh -o IdentitiesOnly=yes root@$SERVER_IP "bash /root/harden-vps.sh"
+ssh root@$SERVER_IP \
+  "REPO_URL=https://github.com/you/dev-server-setup bash <(curl -fsSL https://raw.githubusercontent.com/you/dev-server-setup/main/bootstrap.sh) harden"
 ```
 
-The hardening script:
+This installs Ansible, pulls the repo, and applies `harden.yml`. It:
 - Updates all packages
-- Creates `alex` user with sudo, installs your SSH key
+- Creates the non-root user with your SSH key
 - Moves SSH to port 2222, disables root login and password auth
-- Enables ufw (only 2222/tcp open)
-- Configures fail2ban with sshd jail
-- Enables unattended security upgrades with auto-reboot at 03:00
-- Applies sysctl hardening
-- Enables auditd
-- Reloads ssh.socket (Ubuntu 24.04 uses socket activation)
+- Enables ufw (only 2222/tcp open), fail2ban, unattended upgrades, sysctl hardening, auditd
 
-### Verify before closing root session
-
-**In a new terminal:**
+### Verify before closing the root session
 
 ```bash
-ssh -p 2222 -o IdentitiesOnly=yes alex@$SERVER_IP "sudo whoami"
+ssh -p 2222 alex@$SERVER_IP "sudo whoami"
+# Should print: root
 ```
-
-Should print `root`. Only then close the root session.
 
 ## Step 3 — Set a password for alex
 
-Critical for web console fallback. Do this before closing any firewall doors:
+Critical for web console fallback:
 
 ```bash
 ssh -p 2222 alex@$SERVER_IP
-sudo passwd alex
-# Set a strong password, save it in your password manager
+sudo passwd alex      # save it in your password manager
 exit
 ```
 
-This doesn't weaken SSH (which stays keys-only) — it only enables local/console login.
-
 ## Step 4 — Remove passwordless sudo
 
-The hardening script sets up passwordless sudo by default. Now that alex has a password, tighten it up:
-
 ```bash
 ssh -p 2222 alex@$SERVER_IP
 
-# Test password-based sudo FIRST — don't remove the file until this works:
-sudo -k                    # clear cached sudo
-sudo whoami                # should prompt for password, print "root"
+sudo -k && sudo whoami   # verify password-based sudo works first
 
-# Only if the above worked:
 sudo rm /etc/sudoers.d/90-alex
 
-# Verify sudo still works with password:
-sudo -k
-sudo whoami                # should prompt again
+sudo -k && sudo whoami   # verify again
 ```
 
-**Lesson learned**: if you remove `/etc/sudoers.d/90-alex` *before* setting a password, sudo becomes unusable (the user has no password and no passwordless rule). Recovery requires Hetzner rescue mode — see "Recovery" section below.
+**Lesson learned**: removing the sudoers file before setting a password makes sudo unusable — recovery requires Hetzner rescue mode.
 
-## Step 5 — Install dev tools
-
-Copy and run the dev-setup script as alex:
+## Step 5 — Install dev tools (as alex)
 
 ```bash
-# From laptop:
-scp -P 2222 -o IdentitiesOnly=yes dev-setup.sh alex@$SERVER_IP:~
-
-# Optionally set DOTFILES_REPO for chezmoi auto-apply:
-ssh -p 2222 alex@$SERVER_IP "DOTFILES_REPO='https://github.com/you/dotfiles.git' bash ~/dev-setup.sh"
-
-# Or without dotfiles:
-ssh -p 2222 alex@$SERVER_IP "bash ~/dev-setup.sh"
+ssh -p 2222 alex@$SERVER_IP \
+  "REPO_URL=https://github.com/you/dev-server-setup bash <(curl -fsSL https://raw.githubusercontent.com/you/dev-server-setup/main/bootstrap.sh) devtools"
 ```
 
-The dev-setup script installs:
-- 4 GB swap file (with `vm.swappiness=10`)
-- Node.js LTS + Claude Code (via user-owned npm prefix `~/.npm-global`)
-- Go 1.23.4
-- Docker CE + compose plugin (adds alex to docker group)
-- kubectl, Helm, stern
-- Neovim (stable PPA)
-- Fish shell (stable PPA) with starship configured
-- Starship prompt with minimal config (bash + fish)
-- GitHub CLI (`gh`)
-- chezmoi (optionally applies dotfiles)
-- Playwright system libs
+Installs: Node.js LTS, Claude Code, Go, Docker CE, kubectl, Helm, stern, Neovim, Fish, Starship, GitHub CLI, chezmoi, Playwright system libs, 4 GB swap.
 
-**Log out and back in** after the script finishes — this picks up the docker group and PATH changes.
+**Log out and back in** after this — picks up docker group and PATH changes.
 
-## Step 6 — Authenticate Claude Code and GitHub CLI
+## Step 6 — Authenticate
 
 ```bash
 ssh -p 2222 alex@$SERVER_IP
-claude                    # OAuth flow in browser
-gh auth login             # OAuth flow in browser
-```
+claude          # OAuth flow in browser
+gh auth login   # OAuth flow in browser
 
-Optionally make fish your default shell:
-
-```bash
+# Make fish your default shell:
 chsh -s $(which fish)
 # Log out and back in
 ```
 
 ## Step 7 — Install Tailscale
 
-On the VPS:
-
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
-# Follow the URL to authenticate against your tailnet
-tailscale ip -4          # note the 100.x.y.z address
-tailscale status
+tailscale ip -4     # note the 100.x.y.z address
 ```
 
-Enable MagicDNS in the Tailscale admin console so you can use hostnames instead of IPs.
+Enable MagicDNS in the Tailscale admin console.
 
 ## Step 8 — Update local `~/.ssh/config`
 
-On your laptop:
-
 ```
 Host claude
-    HostName       claude.tail-xxxx.ts.net    # Tailscale MagicDNS hostname
+    HostName       claude.tail-xxxx.ts.net
     User           alex
     Port           2222
     IdentityFile   ~/.ssh/id_ed25519
     IdentitiesOnly yes
 ```
 
-Test: `ssh claude` should work via Tailscale.
-
-## Step 9 — Close public SSH at the Hetzner firewall
-
-Replace `claude` with your actual server name (check with `hcloud server list`):
+## Step 9 — Close public SSH at Hetzner firewall
 
 ```bash
-# Create firewall (no inbound rules = deny all inbound)
 hcloud firewall create --name claude-fw
-
-# Attach to server
-hcloud firewall apply-to-resource claude-fw \
-  --type server --server claude
-
-# Verify
-hcloud firewall describe claude-fw
+hcloud firewall apply-to-resource claude-fw --type server --server claude
 ```
 
-**Test from laptop in a new terminal, before relying on this:**
-
-```bash
-ssh claude                          # via Tailscale — should work
-nc -zv <public-ip> 2222             # should timeout — blocked
-```
+Test from laptop: `ssh claude` (Tailscale) works, `nc -zv <public-ip> 2222` times out.
 
 ### Emergency: re-open 2222 publicly
-
-If Tailscale breaks and you need public SSH back:
 
 ```bash
 hcloud firewall add-rule claude-fw \
@@ -207,27 +163,7 @@ hcloud firewall add-rule claude-fw \
   --description "Emergency SSH"
 ```
 
-Close it again:
-
-```bash
-hcloud firewall delete-rule claude-fw \
-  --direction in --protocol tcp --port 2222 \
-  --source-ips 0.0.0.0/0 --source-ips ::/0
-```
-
-Alternative: restrict to your home IP only
-
-```bash
-MY_IP=$(curl -s https://ifconfig.me)
-hcloud firewall add-rule claude-fw \
-  --direction in --protocol tcp --port 2222 \
-  --source-ips ${MY_IP}/32 \
-  --description "SSH from home"
-```
-
 ## Step 10 — Take a snapshot
-
-Known-good baseline for rollback:
 
 ```bash
 hcloud server create-image claude \
@@ -235,9 +171,19 @@ hcloud server create-image claude \
   --description "Post-setup baseline $(date -u +%Y-%m-%d)"
 ```
 
-## Access fallback paths
+## Re-running playbooks
 
-Three independent ways to reach the server:
+Both playbooks are idempotent. To re-apply after changing `vars.yml`:
+
+```bash
+# On the server as root:
+ansible-pull -U https://github.com/you/dev-server-setup harden.yml
+
+# On the server as alex:
+ansible-pull -U https://github.com/you/dev-server-setup devtools.yml
+```
+
+## Access fallback paths
 
 | Path | When to use | How |
 |------|-------------|-----|
@@ -247,43 +193,18 @@ Three independent ways to reach the server:
 
 ## Verification checks
 
-After setup, confirm everything is in place:
-
 ```bash
-# SSH hardening
 sudo grep -E '^(PermitRootLogin|PasswordAuthentication|AllowUsers)' /etc/ssh/sshd_config.d/99-hardening.conf
-
-# Firewall (host-level)
 sudo ufw status verbose
-
-# fail2ban
 sudo fail2ban-client status sshd
-
-# Unattended upgrades
-systemctl list-timers apt-daily-upgrade.timer
-sudo unattended-upgrade --dry-run --debug 2>&1 | tail -5
-
-# SSH actually listening on 2222
 sudo ss -tlnp | grep ssh
-
-# Dev tool versions
 node -v && go version && docker --version && kubectl version --client
-helm version --short && stern --version && nvim --version | head -1
-fish --version && gh --version | head -1
-starship --version && chezmoi --version && claude --version
+helm version --short && nvim --version | head -1
+fish --version && gh --version | head -1 && claude --version
 ```
 
-## Ubuntu 24.04 quirks we hit
+## Ubuntu 24.04 quirks
 
-- **SSH uses socket activation** (`ssh.socket` + transient `ssh.service`). You can't `systemctl reload ssh` — you must `systemctl restart ssh.socket`. Changing the port in `sshd_config` may not be enough; check with `ss -tlnp` and override `ssh.socket`'s `ListenStream` if needed.
-- **`sshd -t` fails with "missing /run/sshd"** if the directory doesn't exist yet. The hardening script creates it before the test.
-- **Libraries renamed with `t64` suffix** (time_t transition): `libatk1.0-0t64`, `libcups2t64`, etc. Playwright's deps list needs updating per Ubuntu version — when in doubt, use `npx playwright install-deps` from a project.
-
-## Scanner traffic is normal
-
-Even on port 2222, expect fail2ban to ban a handful of IPs per day. Key-only auth + `MaxAuthTries 3` means they hit a wall immediately. Once the Hetzner firewall closes 2222 publicly, this stops.
-
-## Files
-
-- `harden-vps.sh` — run once as root on a fresh VPS
-- `dev-setup.sh` — run once as alex after hardening
+- **SSH uses socket activation** (`ssh.socket`). You can't `systemctl reload ssh` — the playbook handles this via a handler that detects the active unit.
+- **`sshd -t` fails with "missing /run/sshd"** if the directory doesn't exist yet. The hardening playbook creates it before the test.
+- **Libraries renamed with `t64` suffix** (time_t transition): `libatk1.0-0t64`, `libcups2t64`, etc. Playwright deps use `ignore_errors: yes` — run `npx playwright install-deps` from a project for the authoritative set.

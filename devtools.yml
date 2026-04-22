@@ -1,0 +1,648 @@
+---
+- name: Install dev tools
+  hosts: localhost
+  connection: local
+  vars_files:
+    - vars.yml
+
+  tasks:
+    # ─── 1. Baseline build deps ──────────────────────────────────────────────────
+    - name: Install baseline build tools
+      apt:
+        name:
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - zsh
+          - fzf
+          - ripgrep
+          - fd-find
+          - bat
+          - jq
+          - yq
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - python3-pip
+          - python3-venv
+          - unzip
+          - tree
+          - ncdu
+          - tmux
+          - direnv
+          - zoxide
+          - yamllint
+          - sslscan
+          - procps
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 1b. eza (modern ls) ─────────────────────────────────────────────────────
+    - name: Add eza GPG key
+      shell: |
+        curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | \
+          gpg --dearmor -o /etc/apt/keyrings/eza.gpg
+      args:
+        creates: /etc/apt/keyrings/eza.gpg
+      become: yes
+
+    - name: Add eza apt repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/eza.gpg] https://mirror.gwerder.net/eza stable main"
+        state: present
+        filename: eza
+      become: yes
+
+    - name: Install eza
+      apt:
+        name: eza
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 2. Swap file ────────────────────────────────────────────────────────────
+    - name: Create swap file
+      command: fallocate -l 4G /swapfile
+      args:
+        creates: /swapfile
+      become: yes
+
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        mode: '0600'
+      become: yes
+
+    - name: Format swap file
+      command: mkswap /swapfile
+      register: mkswap_result
+      changed_when: "'Setting up swapspace' in mkswap_result.stdout"
+      become: yes
+
+    - name: Enable swap file
+      command: swapon /swapfile
+      register: swapon_result
+      changed_when: swapon_result.rc == 0
+      failed_when: swapon_result.rc != 0 and 'already' not in swapon_result.stderr
+      become: yes
+
+    - name: Add swap to fstab
+      lineinfile:
+        path: /etc/fstab
+        line: '/swapfile none swap sw 0 0'
+        regexp: '/swapfile'
+      become: yes
+
+    - name: Set swappiness
+      sysctl:
+        name: vm.swappiness
+        value: "10"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-swappiness.conf
+        reload: yes
+      become: yes
+
+    # ─── 3. Node.js LTS ──────────────────────────────────────────────────────────
+    - name: Add NodeSource GPG key
+      shell: |
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+          gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+      args:
+        creates: /etc/apt/keyrings/nodesource.gpg
+      become: yes
+
+    - name: Add NodeSource apt repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_lts.x nodistro main"
+        state: present
+        filename: nodesource
+      become: yes
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 4. Claude Code ──────────────────────────────────────────────────────────
+    - name: Configure npm global prefix
+      shell: |
+        mkdir -p "$HOME/.npm-global"
+        npm config set prefix "$HOME/.npm-global"
+      args:
+        creates: "{{ ansible_env.HOME }}/.npm-global"
+
+    - name: Add npm global bin to PATH in .bashrc
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: 'export PATH="$HOME/.npm-global/bin:$PATH"'
+        regexp: 'npm-global'
+
+    - name: Install Claude Code
+      shell: |
+        export PATH="{{ ansible_env.HOME }}/.npm-global/bin:$PATH"
+        npm install -g @anthropic-ai/claude-code
+      args:
+        creates: "{{ ansible_env.HOME }}/.npm-global/bin/claude"
+
+    # ─── 5. Go ───────────────────────────────────────────────────────────────────
+    - name: Set Go architecture
+      set_fact:
+        go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+    - name: Install Go
+      unarchive:
+        src: "https://go.dev/dl/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+        dest: /usr/local
+        remote_src: yes
+        creates: /usr/local/go/bin/go
+      become: yes
+
+    - name: Add Go to PATH in .bashrc
+      blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED — Go PATH"
+        block: |
+          export PATH="/usr/local/go/bin:$PATH"
+          export PATH="$HOME/go/bin:$PATH"
+
+    # ─── 6. Docker CE ────────────────────────────────────────────────────────────
+    - name: Add Docker GPG key
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+          gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+      become: yes
+
+    - name: Add Docker apt repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+          https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+          > /etc/apt/sources.list.d/docker.list
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+      become: yes
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user_id }}"
+        groups: docker
+        append: yes
+      become: yes
+
+    # ─── 7. kubectl ──────────────────────────────────────────────────────────────
+    - name: Add Kubernetes GPG key
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | \
+          gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      become: yes
+
+    - name: Add Kubernetes apt repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /"
+        state: present
+        filename: kubernetes
+      become: yes
+
+    - name: Install kubectl
+      apt:
+        name: kubectl
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 8. Helm ─────────────────────────────────────────────────────────────────
+    - name: Add Helm GPG key
+      shell: |
+        curl -fsSL https://baltocdn.com/helm/signing.asc | \
+          gpg --dearmor -o /etc/apt/keyrings/helm.gpg
+      args:
+        creates: /etc/apt/keyrings/helm.gpg
+      become: yes
+
+    - name: Add Helm apt repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/helm.gpg] \
+          https://baltocdn.com/helm/stable/debian/ all main" \
+          > /etc/apt/sources.list.d/helm-stable-debian.list
+      args:
+        creates: /etc/apt/sources.list.d/helm-stable-debian.list
+      become: yes
+
+    - name: Install Helm
+      apt:
+        name: helm
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 9. stern ────────────────────────────────────────────────────────────────
+    - name: Set stern architecture
+      set_fact:
+        stern_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+    - name: Check if stern is installed
+      stat:
+        path: /usr/local/bin/stern
+      register: stern_stat
+
+    - name: Download stern tarball
+      get_url:
+        url: "https://github.com/stern/stern/releases/download/v{{ stern_version }}/stern_{{ stern_version }}_linux_{{ stern_arch }}.tar.gz"
+        dest: /tmp/stern.tar.gz
+      when: not stern_stat.stat.exists
+      become: yes
+
+    - name: Extract and install stern
+      shell: |
+        tar -xzf /tmp/stern.tar.gz -C /usr/local/bin stern
+        chmod +x /usr/local/bin/stern
+        rm /tmp/stern.tar.gz
+      when: not stern_stat.stat.exists
+      become: yes
+
+    # ─── 10. k6 (performance testing) ───────────────────────────────────────────
+    - name: Add k6 GPG key
+      shell: |
+        gpg --no-default-keyring \
+          --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+          --keyserver hkp://keyserver.ubuntu.com:80 \
+          --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+      args:
+        creates: /usr/share/keyrings/k6-archive-keyring.gpg
+      become: yes
+
+    - name: Add k6 apt repository
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main"
+        state: present
+        filename: k6
+      become: yes
+
+    - name: Install k6
+      apt:
+        name: k6
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 11. kubie ───────────────────────────────────────────────────────────────
+    - name: Set kubie architecture
+      set_fact:
+        kubie_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+    - name: Install kubie
+      get_url:
+        url: "https://github.com/kubie-org/kubie/releases/download/v{{ kubie_version }}/kubie-linux-{{ kubie_arch }}"
+        dest: /usr/local/bin/kubie
+        mode: '0755'
+      become: yes
+
+    # ─── 12. Neovim ──────────────────────────────────────────────────────────────
+    - name: Add Neovim stable PPA
+      apt_repository:
+        repo: ppa:neovim-ppa/stable
+        state: present
+      become: yes
+
+    - name: Install Neovim
+      apt:
+        name: neovim
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 12. GitHub CLI ──────────────────────────────────────────────────────────
+    - name: Add GitHub CLI GPG key
+      shell: |
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+          dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg
+        chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+      become: yes
+
+    - name: Add GitHub CLI apt repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] \
+          https://cli.github.com/packages stable main" \
+          > /etc/apt/sources.list.d/github-cli.list
+      args:
+        creates: /etc/apt/sources.list.d/github-cli.list
+      become: yes
+
+    - name: Install GitHub CLI
+      apt:
+        name: gh
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 13. Fish shell ──────────────────────────────────────────────────────────
+    - name: Add Fish shell PPA
+      apt_repository:
+        repo: ppa:fish-shell/release-3
+        state: present
+      become: yes
+
+    - name: Install Fish shell
+      apt:
+        name: fish
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Create fish conf.d directory
+      file:
+        path: "{{ ansible_env.HOME }}/.config/fish/conf.d"
+        state: directory
+        mode: '0755'
+
+    - name: Write fish PATH config
+      copy:
+        dest: "{{ ansible_env.HOME }}/.config/fish/conf.d/00-paths.fish"
+        content: |
+          fish_add_path -g $HOME/.local/bin
+          fish_add_path -g $HOME/.npm-global/bin
+          fish_add_path -g $HOME/go/bin
+          fish_add_path -g /usr/local/go/bin
+
+    - name: Get fish shell path
+      command: which fish
+      register: fish_path
+      changed_when: false
+
+    - name: Set fish as default shell
+      user:
+        name: "{{ ansible_user_id }}"
+        shell: "{{ fish_path.stdout }}"
+      become: yes
+
+    # ─── 14. Starship ────────────────────────────────────────────────────────────
+    - name: Install Starship
+      shell: curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+      args:
+        creates: /usr/local/bin/starship
+
+    - name: Add Starship init to .bashrc
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: 'eval "$(starship init bash)"'
+        regexp: 'starship init bash'
+
+    - name: Write fish Starship init
+      copy:
+        dest: "{{ ansible_env.HOME }}/.config/fish/conf.d/starship.fish"
+        content: "starship init fish | source\n"
+        force: no
+
+    - name: Write Starship config
+      copy:
+        dest: "{{ ansible_env.HOME }}/.config/starship.toml"
+        force: no
+        content: |
+          add_newline = true
+          command_timeout = 1000
+
+          format = """
+          $username\
+          $hostname\
+          $directory\
+          $git_branch\
+          $git_status\
+          $kubernetes\
+          $golang\
+          $nodejs\
+          $docker_context\
+          $line_break\
+          $character"""
+
+          [character]
+          success_symbol = "[╰─λ](bold green)"
+          error_symbol   = "[╰─λ](bold red)"
+
+          [hostname]
+          ssh_only = true
+          format = "[@$hostname](bold yellow) "
+
+          [directory]
+          truncation_length = 3
+          style = "bold cyan"
+
+          [git_branch]
+          symbol = " "
+          style = "bold purple"
+
+          [git_status]
+          style = "bold red"
+
+          [kubernetes]
+          disabled = false
+          format = '[⎈ $context](bold blue) '
+
+          [golang]
+          symbol = " "
+
+          [nodejs]
+          symbol = " "
+
+    # ─── 15. chezmoi ─────────────────────────────────────────────────────────────
+    - name: Install chezmoi
+      shell: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b {{ ansible_env.HOME }}/.local/bin
+      args:
+        creates: "{{ ansible_env.HOME }}/.local/bin/chezmoi"
+
+    - name: Add .local/bin to PATH in .bashrc
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: 'export PATH="$HOME/.local/bin:$PATH"'
+        regexp: '\.local/bin'
+
+    - name: Init dotfiles with chezmoi
+      command: "{{ ansible_env.HOME }}/.local/bin/chezmoi init --apply {{ dotfiles_repo }}"
+      args:
+        creates: "{{ ansible_env.HOME }}/.local/share/chezmoi"
+      when: dotfiles_repo | length > 0
+
+    - name: Fix tmux fish shell path (replace Nix path with system fish)
+      replace:
+        path: "{{ ansible_env.HOME }}/.config/tmux/tmux.conf"
+        regexp: 'set-option -g default-shell .*fish'
+        replace: 'set-option -g default-shell /usr/bin/fish'
+      when: dotfiles_repo | length > 0
+      ignore_errors: yes
+
+    # ─── 16. just (task runner) ──────────────────────────────────────────────────
+    - name: Set just architecture
+      set_fact:
+        just_arch: "{{ 'aarch64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Install just
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | \
+          bash -s -- --to /usr/local/bin --tag {{ just_version }}
+      args:
+        creates: /usr/local/bin/just
+      become: yes
+
+    # ─── 17. lazygit ─────────────────────────────────────────────────────────────
+    - name: Set lazygit architecture
+      set_fact:
+        lazygit_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Check if lazygit is installed
+      stat:
+        path: /usr/local/bin/lazygit
+      register: lazygit_stat
+
+    - name: Download and install lazygit
+      shell: |
+        curl -fsSL "https://github.com/jesseduffield/lazygit/releases/download/v{{ lazygit_version }}/lazygit_{{ lazygit_version }}_Linux_{{ lazygit_arch }}.tar.gz" | \
+          tar -xz -C /usr/local/bin lazygit
+        chmod +x /usr/local/bin/lazygit
+      when: not lazygit_stat.stat.exists
+      become: yes
+
+    # ─── 18. crane ───────────────────────────────────────────────────────────────
+    - name: Set crane architecture
+      set_fact:
+        crane_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Check if crane is installed
+      stat:
+        path: /usr/local/bin/crane
+      register: crane_stat
+
+    - name: Download and install crane
+      shell: |
+        curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v{{ crane_version }}/go-containerregistry_Linux_{{ crane_arch }}.tar.gz" | \
+          tar -xz -C /usr/local/bin crane
+        chmod +x /usr/local/bin/crane
+      when: not crane_stat.stat.exists
+      become: yes
+
+    # ─── 19. hcloud CLI ──────────────────────────────────────────────────────────
+    - name: Set hcloud architecture
+      set_fact:
+        hcloud_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+    - name: Install hcloud CLI
+      get_url:
+        url: "https://github.com/hetznercloud/cli/releases/download/v{{ hcloud_version }}/hcloud-linux-{{ hcloud_arch }}.tar.gz"
+        dest: /tmp/hcloud.tar.gz
+      register: hcloud_download
+      become: yes
+
+    - name: Extract hcloud binary
+      shell: |
+        tar -xzf /tmp/hcloud.tar.gz -C /usr/local/bin hcloud
+        chmod +x /usr/local/bin/hcloud
+        rm /tmp/hcloud.tar.gz
+      args:
+        creates: /usr/local/bin/hcloud
+      become: yes
+
+    # ─── 20. Terraform ───────────────────────────────────────────────────────────
+    - name: Add HashiCorp GPG key
+      shell: |
+        curl -fsSL https://apt.releases.hashicorp.com/gpg | \
+          gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg
+      args:
+        creates: /etc/apt/keyrings/hashicorp.gpg
+      become: yes
+
+    - name: Add HashiCorp apt repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        state: present
+        filename: hashicorp
+      become: yes
+
+    - name: Install Terraform
+      apt:
+        name: terraform
+        state: present
+        update_cache: yes
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─── 21. Ginkgo ──────────────────────────────────────────────────────────────
+    - name: Install Ginkgo
+      shell: |
+        export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+        go install github.com/onsi/ginkgo/v2/ginkgo@latest
+      args:
+        creates: "{{ ansible_env.HOME }}/go/bin/ginkgo"
+      environment:
+        HOME: "{{ ansible_env.HOME }}"
+        GOPATH: "{{ ansible_env.HOME }}/go"
+
+    # ─── 22. Playwright system deps ──────────────────────────────────────────────
+    - name: Install Playwright system dependencies
+      apt:
+        name:
+          - libnss3
+          - libatk1.0-0t64
+          - libatk-bridge2.0-0t64
+          - libcups2t64
+          - libxkbcommon0
+          - libxcomposite1
+          - libxdamage1
+          - libxfixes3
+          - libxrandr2
+          - libgbm1
+          - libasound2t64
+          - libpango-1.0-0
+          - libcairo2
+          - fonts-liberation
+          - fonts-noto-color-emoji
+          - libdrm2
+          - libxshmfence1
+          - libgtk-3-0t64
+        state: present
+      become: yes
+      ignore_errors: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
