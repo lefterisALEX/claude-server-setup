@@ -528,6 +528,17 @@
         creates: /usr/local/bin/just
       become: yes
 
+    - name: Create fish completions directory
+      file:
+        path: "{{ ansible_env.HOME }}/.config/fish/completions"
+        state: directory
+        mode: '0755'
+
+    - name: Generate fish completions for just
+      shell: /usr/local/bin/just --completions fish > {{ ansible_env.HOME }}/.config/fish/completions/just.fish
+      args:
+        creates: "{{ ansible_env.HOME }}/.config/fish/completions/just.fish"
+
     # ─── 17. lazygit ─────────────────────────────────────────────────────────────
     - name: Set lazygit architecture
       set_fact:
