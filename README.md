@@ -24,6 +24,7 @@ End-to-end guide for a hardened Hetzner VPS running Claude Code, Playwright, Go 
 | `vars.yml` | All configuration — edit this before running |
 | `harden.yml` | Ansible playbook: OS hardening (run as root) |
 | `devtools.yml` | Ansible playbook: dev tool installation (run as non-root user) |
+| `cloud-init.yml` | cloud-init config: installs ansible+git on first boot |
 | `bootstrap.sh` | Tiny bootstrap: installs Ansible, then runs `ansible-pull` |
 | `templates/` | Jinja2 templates for sshd and fail2ban config |
 
@@ -51,7 +52,7 @@ SERVER_IP=$(hcloud server create \
   --type cpx32 \
   --location nbg1 \
   --ssh-key lefteris \
-  --user-data-from-file <(printf '#cloud-config\npackages:\n  - ansible\n  - git\n') \
+  --user-data-from-file <(curl -fsSL https://raw.githubusercontent.com/lefterisALEX/claude-server-setup/main/cloud-init.yml) \
   --output json | jq -r '.server.public_net.ipv4.ip')
 
 echo "Server IP: $SERVER_IP"
