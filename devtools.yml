@@ -391,14 +391,14 @@
     - name: Write Starship config
       copy:
         dest: "{{ ansible_env.HOME }}/.config/starship.toml"
-        force: no
+        force: yes
         content: |
           add_newline = true
           command_timeout = 1000
 
           format = """
-          $username\
           $hostname\
+          $username\
           $directory\
           $git_branch\
           $git_status\
@@ -410,12 +410,12 @@
           $character"""
 
           [character]
-          success_symbol = "[╰─λ](bold green)"
+          success_symbol = "[╰─λ](bold yellow)"
           error_symbol   = "[╰─λ](bold red)"
 
           [hostname]
-          ssh_only = true
-          format = "[@$hostname](bold yellow) "
+          ssh_only = false
+          format = "[🖥  $hostname](bold orange) "
 
           [directory]
           truncation_length = 3
