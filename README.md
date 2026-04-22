@@ -45,23 +45,25 @@ dotfiles_repo: ""       # optional: https://github.com/you/dotfiles.git
 ## Step 1 — Create the server
 
 ```bash
-hcloud server create \
+SERVER_IP=$(hcloud server create \
   --name claude \
   --image ubuntu-24.04 \
   --type cpx32 \
   --location nbg1 \
-  --ssh-key lefteris
+  --ssh-key lefteris \
+  --user-data <(echo -e '#cloud-config\npackages:\n  - ansible\n  - git') \
+  --output json | jq -r '.server.public_net.ipv4.ip')
+
+echo "Server IP: $SERVER_IP"
 ```
 
-Note the IPv4 address from the output.
+Ansible and git are installed automatically via cloud-init on first boot. Wait ~30 seconds before SSHing in.
 
 ## Step 2 — Run hardening (as root)
 
 ```bash
-SERVER_IP=<ip-from-step-1>
-
 ssh root@$SERVER_IP \
-  "REPO_URL=https://github.com/you/dev-server-setup bash <(curl -fsSL https://raw.githubusercontent.com/you/dev-server-setup/main/bootstrap.sh) harden"
+  "ansible-pull -U https://github.com/lefterisALEX/dev-server-setup harden.yml"
 ```
 
 This installs Ansible, pulls the repo, and applies `harden.yml`. It:
@@ -105,7 +107,7 @@ sudo -k && sudo whoami   # verify again
 
 ```bash
 ssh -p 2222 alex@$SERVER_IP \
-  "REPO_URL=https://github.com/you/dev-server-setup bash <(curl -fsSL https://raw.githubusercontent.com/you/dev-server-setup/main/bootstrap.sh) devtools"
+  "ansible-pull -U https://github.com/lefterisALEX/dev-server-setup devtools.yml"
 ```
 
 Installs: Node.js LTS, Claude Code, Go, Docker CE, kubectl, Helm, stern, Neovim, Fish, Starship, GitHub CLI, chezmoi, Playwright system libs, 4 GB swap.
