@@ -51,7 +51,7 @@ SERVER_IP=$(hcloud server create \
   --type cpx32 \
   --location nbg1 \
   --ssh-key lefteris \
-  --user-data <(echo -e '#cloud-config\npackages:\n  - ansible\n  - git') \
+  --user-data-from-file <(printf '#cloud-config\npackages:\n  - ansible\n  - git\n') \
   --output json | jq -r '.server.public_net.ipv4.ip')
 
 echo "Server IP: $SERVER_IP"
