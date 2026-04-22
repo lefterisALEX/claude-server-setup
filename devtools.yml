@@ -643,6 +643,70 @@
         HOME: "{{ ansible_env.HOME }}"
         GOPATH: "{{ ansible_env.HOME }}/go"
 
+    # ─── 22b. Playwright browser system deps (Ubuntu 24.04) ─────────────────────
+    # Mirrors `npx playwright install-deps` for chromium + firefox + webkit.
+    # Browsers themselves are installed per-project via `npx playwright install`.
+    - name: Install Playwright browser runtime libraries
+      apt:
+        name:
+          - fonts-liberation
+          - libasound2t64
+          - libatk-bridge2.0-0t64
+          - libatk1.0-0t64
+          - libatspi2.0-0t64
+          - libavif16
+          - libcairo2
+          - libcups2t64
+          - libdbus-1-3
+          - libdbus-glib-1-2
+          - libdrm2
+          - libenchant-2-2
+          - libepoxy0
+          - libevdev2
+          - libflite1
+          - libgbm1
+          - libgles2
+          - libglib2.0-0t64
+          - libgstreamer-gl1.0-0
+          - libgstreamer-plugins-base1.0-0
+          - libgstreamer1.0-0
+          - libgudev-1.0-0
+          - libharfbuzz-icu0
+          - libhyphen0
+          - libicu74
+          - liblcms2-2
+          - libmanette-0.2-0
+          - libnotify4
+          - libnspr4
+          - libnss3
+          - libopenjp2-7
+          - libopus0
+          - libpango-1.0-0
+          - libpsl5t64
+          - libsecret-1-0
+          - libsoup-3.0-0
+          - libvpx9
+          - libwayland-client0
+          - libwayland-egl1
+          - libwayland-server0
+          - libwebp7
+          - libwebpdemux2
+          - libwebpmux3
+          - libwoff1
+          - libx11-6
+          - libx264-164
+          - libxcb1
+          - libxcomposite1
+          - libxdamage1
+          - libxext6
+          - libxfixes3
+          - libxkbcommon0
+          - libxrandr2
+        state: present
+      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
     # ─── 23. beads (issue tracker for coding agents) ────────────────────────────
     - name: Install beads
       shell: curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
