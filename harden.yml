@@ -1,0 +1,203 @@
+---
+- name: Harden VPS
+  hosts: localhost
+  connection: local
+  become: yes
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: restart sshd
+      shell: |
+        if systemctl is-active --quiet ssh.socket; then
+          systemctl restart ssh.socket
+          systemctl is-active --quiet ssh.service && systemctl restart ssh.service || true
+        elif systemctl is-active --quiet ssh.service; then
+          systemctl reload ssh.service
+        elif systemctl is-active --quiet sshd.service; then
+          systemctl reload sshd.service
+        fi
+
+  tasks:
+    - name: Update and full-upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: full
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install baseline packages
+      apt:
+        name:
+          - sudo
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+          - apt-listchanges
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - tmux
+          - rsync
+          - ca-certificates
+          - gnupg
+          - chrony
+          - auditd
+          - lynis
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Set timezone
+      command: timedatectl set-timezone {{ timezone }}
+      changed_when: false
+
+    - name: Enable and start chrony
+      systemd:
+        name: chrony
+        enabled: yes
+        state: started
+
+    - name: Create non-root user
+      user:
+        name: "{{ new_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+        create_home: yes
+
+    - name: Configure passwordless sudo
+      copy:
+        dest: "/etc/sudoers.d/90-{{ new_user }}"
+        content: "{{ new_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: '0440'
+        validate: visudo -cf %s
+
+    - name: Create .ssh directory for new user
+      file:
+        path: "/home/{{ new_user }}/.ssh"
+        state: directory
+        owner: "{{ new_user }}"
+        group: "{{ new_user }}"
+        mode: '0700'
+
+    - name: Set SSH key from provided pubkey
+      authorized_key:
+        user: "{{ new_user }}"
+        key: "{{ ssh_pubkey }}"
+        state: present
+      when: ssh_pubkey | length > 0
+
+    - name: Read root authorized_keys (when ssh_pubkey not set)
+      slurp:
+        src: /root/.ssh/authorized_keys
+      register: root_authorized_keys
+      when: ssh_pubkey | length == 0
+
+    - name: Copy SSH key from root
+      authorized_key:
+        user: "{{ new_user }}"
+        key: "{{ root_authorized_keys.content | b64decode }}"
+        state: present
+      when: ssh_pubkey | length == 0 and root_authorized_keys is defined
+
+    - name: Ensure /run/sshd exists
+      file:
+        path: /run/sshd
+        state: directory
+        mode: '0755'
+
+    - name: Write sshd hardening config
+      template:
+        src: templates/sshd_hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        mode: '0644'
+      notify: restart sshd
+
+    - name: Validate sshd config
+      command: sshd -t
+      changed_when: false
+
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+
+    - name: Allow SSH port in UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ ssh_port | string }}"
+        proto: tcp
+        comment: SSH
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Write fail2ban jail config
+      template:
+        src: templates/fail2ban_jail.j2
+        dest: /etc/fail2ban/jail.local
+        mode: '0644'
+
+    - name: Enable and restart fail2ban
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: restarted
+
+    - name: Configure apt periodic updates
+      copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+        mode: '0644'
+
+    - name: Configure unattended upgrades reboot behavior
+      copy:
+        dest: /etc/apt/apt.conf.d/51unattended-upgrades-local
+        content: |
+          Unattended-Upgrade::Automatic-Reboot "true";
+          Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+          Unattended-Upgrade::Automatic-Reboot-Time "{{ auto_reboot_time }}";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+        mode: '0644'
+
+    - name: Apply sysctl hardening
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-hardening.conf
+        reload: yes
+      loop:
+        - { name: net.ipv4.conf.all.rp_filter,                value: "1" }
+        - { name: net.ipv4.conf.default.rp_filter,            value: "1" }
+        - { name: net.ipv4.conf.all.accept_redirects,         value: "0" }
+        - { name: net.ipv6.conf.all.accept_redirects,         value: "0" }
+        - { name: net.ipv4.conf.all.send_redirects,           value: "0" }
+        - { name: net.ipv4.conf.all.accept_source_route,      value: "0" }
+        - { name: net.ipv6.conf.all.accept_source_route,      value: "0" }
+        - { name: net.ipv4.conf.all.log_martians,             value: "1" }
+        - { name: net.ipv4.icmp_echo_ignore_broadcasts,       value: "1" }
+        - { name: net.ipv4.icmp_ignore_bogus_error_responses, value: "1" }
+        - { name: net.ipv4.tcp_syncookies,                    value: "1" }
+        - { name: kernel.dmesg_restrict,                      value: "1" }
+        - { name: kernel.kptr_restrict,                       value: "2" }
+        - { name: kernel.yama.ptrace_scope,                   value: "1" }
+        - { name: fs.protected_hardlinks,                     value: "1" }
+        - { name: fs.protected_symlinks,                      value: "1" }
+        - { name: fs.suid_dumpable,                           value: "0" }
+
+    - name: Enable auditd
+      systemd:
+        name: auditd
+        enabled: yes
+        state: started

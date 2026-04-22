@@ -1,0 +1,17 @@
+---
+# ─── Server config ─────────────────────────────────────────────────────────────
+new_user: alex
+ssh_port: 2222
+ssh_pubkey: ""          # paste your SSH public key, or leave empty to copy from root
+timezone: Europe/Amsterdam
+auto_reboot_time: "03:00"
+
+# ─── Dev tools ─────────────────────────────────────────────────────────────────
+go_version: "1.23.4"
+stern_version: "1.30.0"
+kubie_version: "0.27.0"
+lazygit_version: "0.61.1"
+crane_version: "0.21.5"
+hcloud_version: "1.62.2"
+just_version: "1.50.0"
+dotfiles_repo: "https://github.com/lefterisALEX/dotfiles"

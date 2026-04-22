@@ -1,0 +1,24 @@
+# Managed by Ansible — do not edit manually
+Port {{ ssh_port }}
+Protocol 2
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+UsePAM yes
+
+PermitEmptyPasswords no
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding yes
+PrintMotd no
+
+MaxAuthTries 3
+MaxSessions 10
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+AllowUsers {{ new_user }}
