@@ -570,6 +570,13 @@
         HOME: "{{ ansible_env.HOME }}"
         GOPATH: "{{ ansible_env.HOME }}/go"
 
+    # ─── 23. beads (issue tracker for coding agents) ────────────────────────────
+    - name: Install beads
+      shell: curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+      args:
+        creates: /usr/local/bin/bd
+      become: yes
+
     # ─── 22. Playwright system deps ──────────────────────────────────────────────
     - name: Install Playwright system dependencies
       apt:
