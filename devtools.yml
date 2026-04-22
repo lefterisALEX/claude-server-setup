@@ -358,9 +358,9 @@
 
     # ─── 14. Starship ────────────────────────────────────────────────────────────
     - name: Install Starship
-      shell: curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+      shell: curl -fsSL https://starship.rs/install.sh | sh -s -- --yes --bin-dir {{ ansible_env.HOME }}/.local/bin
       args:
-        creates: /usr/local/bin/starship
+        creates: "{{ ansible_env.HOME }}/.local/bin/starship"
 
     - name: Add Starship init to .bashrc
       lineinfile:
