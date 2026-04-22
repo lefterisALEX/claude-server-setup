@@ -36,31 +36,7 @@
           - yamllint
           - sslscan
           - procps
-        state: present
-        update_cache: yes
-      become: yes
-      environment:
-        DEBIAN_FRONTEND: noninteractive
-
-    # ─── 1b. eza (modern ls) ─────────────────────────────────────────────────────
-    - name: Add eza GPG key
-      shell: |
-        curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | \
-          gpg --dearmor -o /etc/apt/keyrings/eza.gpg
-      args:
-        creates: /etc/apt/keyrings/eza.gpg
-      become: yes
-
-    - name: Add eza apt repository
-      apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/eza.gpg] https://mirror.gwerder.net/eza stable main"
-        state: present
-        filename: eza
-      become: yes
-
-    - name: Install eza
-      apt:
-        name: eza
+          - eza
         state: present
         update_cache: yes
       become: yes
