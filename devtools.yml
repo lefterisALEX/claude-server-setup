@@ -632,6 +632,17 @@
         HOME: "{{ ansible_env.HOME }}"
         GOPATH: "{{ ansible_env.HOME }}/go"
 
+    # ─── 22. gotestsum ──────────────────────────────────────────────────────────
+    - name: Install gotestsum
+      shell: |
+        export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+        go install gotest.tools/gotestsum@latest
+      args:
+        creates: "{{ ansible_env.HOME }}/go/bin/gotestsum"
+      environment:
+        HOME: "{{ ansible_env.HOME }}"
+        GOPATH: "{{ ansible_env.HOME }}/go"
+
     # ─── 23. beads (issue tracker for coding agents) ────────────────────────────
     - name: Install beads
       shell: curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
