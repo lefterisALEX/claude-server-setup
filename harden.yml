@@ -9,7 +9,7 @@
   handlers:
     - name: restart sshd
       shell: |
-        systemctl restart ssh.socket || systemctl reload ssh.service || systemctl reload sshd.service
+        systemctl reload-or-restart sshd 2>/dev/null || systemctl reload-or-restart ssh
 
   tasks:
     - name: Update and full-upgrade packages
@@ -111,6 +111,10 @@
 
     - name: Validate sshd config
       command: sshd -t
+      changed_when: false
+
+    - name: Restart sshd to apply config
+      shell: systemctl reload-or-restart sshd 2>/dev/null || systemctl reload-or-restart ssh
       changed_when: false
 
     - name: Set UFW default policies
