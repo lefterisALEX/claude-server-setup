@@ -2,10 +2,10 @@
 # Bootstrap: installs Ansible on the server and runs ansible-pull.
 #
 # Phase 1 — run as root after creating the server:
-#   REPO_URL=https://github.com/you/dev-server-setup bash bootstrap.sh harden
+#   REPO_URL=https://github.com/lefterisALEX/claude-server-setup bash bootstrap.sh harden
 #
 # Phase 2 — run as your non-root user after hardening:
-#   REPO_URL=https://github.com/you/dev-server-setup bash bootstrap.sh devtools
+#   REPO_URL=https://github.com/lefterisALEX/claude-server-setup bash bootstrap.sh devtools
 
 set -euo pipefail
 

@@ -63,7 +63,7 @@ Ansible and git are installed automatically via cloud-init on first boot. Wait ~
 
 ```bash
 ssh root@$SERVER_IP \
-  "ansible-pull -U https://github.com/lefterisALEX/dev-server-setup harden.yml"
+  "ansible-pull -U https://github.com/lefterisALEX/claude-server-setup harden.yml"
 ```
 
 This installs Ansible, pulls the repo, and applies `harden.yml`. It:
@@ -107,7 +107,7 @@ sudo -k && sudo whoami   # verify again
 
 ```bash
 ssh -p 2222 alex@$SERVER_IP \
-  "ansible-pull -U https://github.com/lefterisALEX/dev-server-setup devtools.yml"
+  "ansible-pull -U https://github.com/lefterisALEX/claude-server-setup devtools.yml"
 ```
 
 Installs: Node.js LTS, Claude Code, Go, Docker CE, kubectl, Helm, stern, Neovim, Fish, Starship, GitHub CLI, chezmoi, Playwright system libs, 4 GB swap.
@@ -179,10 +179,10 @@ Both playbooks are idempotent. To re-apply after changing `vars.yml`:
 
 ```bash
 # On the server as root:
-ansible-pull -U https://github.com/you/dev-server-setup harden.yml
+ansible-pull -U https://github.com/lefterisALEX/claude-server-setup harden.yml
 
 # On the server as alex:
-ansible-pull -U https://github.com/you/dev-server-setup devtools.yml
+ansible-pull -U https://github.com/lefterisALEX/claude-server-setup devtools.yml
 ```
 
 ## Access fallback paths
