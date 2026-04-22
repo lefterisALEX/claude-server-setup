@@ -15,3 +15,7 @@ crane_version: "0.21.5"
 hcloud_version: "1.62.2"
 just_version: "1.50.0"
 dotfiles_repo: "https://github.com/lefterisALEX/dotfiles"
+
+# ─── Git identity ──────────────────────────────────────────────────────────────
+git_user_name: "lefteris"
+git_user_email: "lefteris@alexakis.org"

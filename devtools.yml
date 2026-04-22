@@ -314,6 +314,15 @@
       environment:
         DEBIAN_FRONTEND: noninteractive
 
+    # ─── Git identity ────────────────────────────────────────────────────────────
+    - name: Configure git user.name
+      command: git config --global user.name "{{ git_user_name }}"
+      changed_when: false
+
+    - name: Configure git user.email
+      command: git config --global user.email "{{ git_user_email }}"
+      changed_when: false
+
     # ─── 13. Fish shell ──────────────────────────────────────────────────────────
     - name: Add Fish shell PPA
       apt_repository:
