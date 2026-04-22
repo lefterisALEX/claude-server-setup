@@ -87,20 +87,14 @@
       become: yes
 
     # ─── 3. Node.js LTS ──────────────────────────────────────────────────────────
-    - name: Add NodeSource GPG key
+    - name: Install Node.js via NodeSource setup script
       shell: |
-        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
-          gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
       args:
-        creates: /etc/apt/keyrings/nodesource.gpg
+        creates: /etc/apt/sources.list.d/nodesource.list
       become: yes
-
-    - name: Add NodeSource apt repository
-      apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_lts.x nodistro main"
-        state: present
-        filename: nodesource
-      become: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
 
     - name: Install Node.js
       apt:
