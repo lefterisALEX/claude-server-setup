@@ -214,31 +214,11 @@
         DEBIAN_FRONTEND: noninteractive
 
     # ─── 8. Helm ─────────────────────────────────────────────────────────────────
-    - name: Add Helm GPG key
-      shell: |
-        curl -fsSL https://baltocdn.com/helm/signing.asc | \
-          gpg --dearmor -o /etc/apt/keyrings/helm.gpg
+    - name: Install Helm via official script
+      shell: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       args:
-        creates: /etc/apt/keyrings/helm.gpg
+        creates: /usr/local/bin/helm
       become: yes
-
-    - name: Add Helm apt repository
-      shell: |
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/helm.gpg] \
-          https://baltocdn.com/helm/stable/debian/ all main" \
-          > /etc/apt/sources.list.d/helm-stable-debian.list
-      args:
-        creates: /etc/apt/sources.list.d/helm-stable-debian.list
-      become: yes
-
-    - name: Install Helm
-      apt:
-        name: helm
-        state: present
-        update_cache: yes
-      become: yes
-      environment:
-        DEBIAN_FRONTEND: noninteractive
 
     # ─── 9. stern ────────────────────────────────────────────────────────────────
     - name: Set stern architecture
