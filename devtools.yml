@@ -357,6 +357,12 @@
       become: yes
 
     # ─── 14. Starship ────────────────────────────────────────────────────────────
+    - name: Ensure ~/.local/bin exists
+      file:
+        path: "{{ ansible_env.HOME }}/.local/bin"
+        state: directory
+        mode: '0755'
+
     - name: Install Starship
       shell: curl -fsSL https://starship.rs/install.sh | sh -s -- --yes --bin-dir {{ ansible_env.HOME }}/.local/bin
       args:
