@@ -737,3 +737,40 @@
       args:
         creates: /usr/local/bin/dolt
       become: yes
+
+    # ─── 25. AWS CLI v2 ──────────────────────────────────────────────────────────
+    - name: Set AWS CLI architecture
+      set_fact:
+        awscli_arch: "{{ 'aarch64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Check if AWS CLI is installed
+      stat:
+        path: /usr/local/bin/aws
+      register: awscli_stat
+
+    - name: Download AWS CLI v2 bundle
+      get_url:
+        url: "https://awscli.amazonaws.com/awscli-exe-linux-{{ awscli_arch }}.zip"
+        dest: /tmp/awscliv2.zip
+      when: not awscli_stat.stat.exists
+
+    - name: Extract AWS CLI v2 bundle
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: yes
+      when: not awscli_stat.stat.exists
+
+    - name: Run AWS CLI v2 installer
+      command: /tmp/aws/install
+      when: not awscli_stat.stat.exists
+      become: yes
+
+    - name: Clean up AWS CLI installer files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/awscliv2.zip
+        - /tmp/aws
+      when: not awscli_stat.stat.exists
